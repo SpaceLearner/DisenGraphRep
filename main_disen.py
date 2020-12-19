@@ -6,6 +6,14 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import GCNConv
 from models.infomax import DeepGraphInfomax
 
+
+def setup_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # np.random.seed(seed)
+    # random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+
 dataset = 'Cora'
 path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset)
 dataset = Planetoid(path, dataset)
@@ -53,8 +61,12 @@ def test():
     return acc
 
 
-for epoch in range(1, 1001):
-    loss = train()
-    print('Epoch: {:03d}, Loss: {:.4f}'.format(epoch, loss))
-acc = test()
-print('Accuracy: {:.4f}'.format(acc))
+if __name__ == "__main__":
+    setup_seed(123)
+    hyper = 1.0
+    for epoch in range(1, 1001):
+        loss = train()
+        print('Epoch: {:03d}, Loss: {:.4f}'.format(epoch, loss))
+        torch.save(model.state_dict(), f'./save/infomax_{hyper}.pth')
+    acc = test()
+    print('Accuracy: {:.4f}'.format(acc))
