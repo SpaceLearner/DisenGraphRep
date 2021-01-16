@@ -59,11 +59,12 @@ class DeepGraphInfomax(torch.nn.Module):
         corruption (callable): The corruption function :math:`\mathcal{C}`.
     """
 
-    def __init__(self, hidden_channels, encoder, summary, corruption):
+    def __init__(self, hidden_channels, encoder, decoder, summary, corruption):
         super(DeepGraphInfomax, self).__init__()
         self.hidden_channels = hidden_channels
         self.z_dim = self.hidden_channels
         self.encoder = encoder
+        self.decoder = decoder
         self.summary = summary
         self.corruption = corruption
 
@@ -76,7 +77,7 @@ class DeepGraphInfomax(torch.nn.Module):
         self.register_buffer('prior_params', torch.zeros(self.hidden_channels, 2))
         
         self.beta = 1
-        self.include_mutinfo = True
+        self.include_mutinfo = False
         self.lamb = 0
 
         self.reset_parameters()
@@ -90,13 +91,14 @@ class DeepGraphInfomax(torch.nn.Module):
         """Returns the latent space for the input arguments, their
         corruptions and their summary representation."""
         pos_z_params = self.encoder(*args, **kwargs).view(args[0].size(0), self.hidden_channels, self.q_dist.nparams)
-        pos_z = self.q_dist.sample(params=pos_z_params)
+        #pos_z = self.q_dist.sample(params=pos_z_params)
+        pos_z = pos_z_params[:, :, 0]
         
         cor = self.corruption(*args, **kwargs)
         cor = cor if isinstance(cor, tuple) else (cor, )
         neg_z_params = self.encoder(*cor).view(args[0].size(0), self.hidden_channels, self.q_dist.nparams)
-        neg_z = self.q_dist.sample(params=neg_z_params)
-        
+        # neg_z = self.q_dist.sample(params=neg_z_params)
+        neg_z = neg_z_params[:, :, 1]
         # pos_z = pos_z_params.view(args[0].size(0), -1)
         # neg_z = neg_z_params.view(args[0].size(0), -1)
         
@@ -127,14 +129,14 @@ class DeepGraphInfomax(torch.nn.Module):
         
         z_params = self.encoder(x, edge_index).view(x.size(0), self.hidden_channels, self.q_dist.nparams)
         zs = self.q_dist.sample(params=z_params)
-        
-        # x_params = self.decoder(zs, edge_index).view(x.size(0), 1, -1)
-        # xs = self.x_dist.sample(params=x_params)
-        # logpx = self.x_dist.log_density(x, params=x_params).view(batch_size, -1).sum(1)
+       
+        x_params = self.decoder(zs, edge_index).view(x.size(0), 1, -1)
+        xs = self.x_dist.sample(params=x_params)
+        logpx = self.x_dist.log_density(x.unsqueeze(1), params=x_params).view(batch_size, -1).sum(1)
         logpz = self.prior_dist.log_density(zs, params=prior_params).view(batch_size, -1).sum(1)
         logqz_condx = self.q_dist.log_density(zs, params=z_params).view(batch_size, -1).sum(1)
         
-        elbo2 = logpz - logqz_condx
+        elbo2 = logpx + logpz - logqz_condx
         
         if self.beta == 1 and self.include_mutinfo and self.lamb == 0:
             return elbo2, elbo2.detach()
@@ -158,22 +160,22 @@ class DeepGraphInfomax(torch.nn.Module):
 
         if not self.tcvae:
             if self.include_mutinfo:
-                modified_elbo = self.beta * (
+                modified_elbo = logpx - self.beta * (
                     (logqz_condx - logpz) -
                     self.lamb * (logqz_prodmarginals - logpz)
                 )
             else:
-                modified_elbo = self.beta * (
+                modified_elbo = logpx - self.beta * (
                     (logqz - logqz_prodmarginals) +
                     (1 - self.lamb) * (logqz_prodmarginals - logpz)
                 )
         else:
             if self.include_mutinfo:
-                modified_elbo =  (logqz_condx - logqz) - \
+                modified_elbo =  logpx - (logqz_condx - logqz) - \
                     self.beta * (logqz - logqz_prodmarginals) - \
                     (1 - self.lamb) * (logqz_prodmarginals - logpz)
             else:
-                modified_elbo = self.beta * (logqz - logqz_prodmarginals) - \
+                modified_elbo = logpx - self.beta * (logqz - logqz_prodmarginals) - \
                     (1 - self.lamb) * (logqz_prodmarginals - logpz)
 
         return modified_elbo, elbo2.detach()
@@ -199,7 +201,7 @@ class DeepGraphInfomax(torch.nn.Module):
         neg_loss = -torch.log(
             1 - self.discriminate(neg_z, summary, sigmoid=True) + EPS).mean()
         
-        return pos_loss + neg_loss - 2.0 * elbo2[0].mean()
+        return pos_loss + neg_loss - 2 * elbo2[0].mean()
 
     def test(self, train_z, train_y, test_z, test_y, solver='lbfgs',
              multi_class='auto', *args, **kwargs):

@@ -6,14 +6,6 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import GCNConv
 from models.infomax import DeepGraphInfomax
 
-
-def setup_seed(seed):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    # np.random.seed(seed)
-    # random.seed(seed)
-    torch.backends.cudnn.deterministic = True
-
 dataset = 'Cora'
 path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset)
 dataset = Planetoid(path, dataset)
@@ -21,6 +13,17 @@ dataset = Planetoid(path, dataset)
 class Encoder(nn.Module):
     def __init__(self, in_channels, hidden_channels):
         super(Encoder, self).__init__()
+        self.conv = GCNConv(in_channels, hidden_channels, cached=True)
+        self.prelu = nn.PReLU(hidden_channels)
+
+    def forward(self, x, edge_index):
+        x = self.conv(x, edge_index)
+        x = self.prelu(x)
+        return x
+    
+class Decoder(nn.Module):
+    def __init__(self, in_channels, hidden_channels):
+        super(Decoder, self).__init__()
         self.conv = GCNConv(in_channels, hidden_channels, cached=True)
         self.prelu = nn.PReLU(hidden_channels)
 
@@ -36,7 +39,7 @@ def corruption(x, edge_index):
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = DeepGraphInfomax(
-    hidden_channels=512, encoder=Encoder(dataset.num_features, 1024),
+    hidden_channels=512, encoder=Encoder(dataset.num_features, 1024), decoder=Decoder(512, dataset.num_features),
     summary=lambda z, *args, **kwargs: torch.sigmoid(z.mean(dim=0)),
     corruption=corruption).to(device)
 data = dataset[0].to(device)
@@ -61,12 +64,8 @@ def test():
     return acc
 
 
-if __name__ == "__main__":
-    setup_seed(123)
-    hyper = 1.0
-    for epoch in range(1, 1001):
-        loss = train()
-        print('Epoch: {:03d}, Loss: {:.4f}'.format(epoch, loss))
-        torch.save(model.state_dict(), f'./save/infomax_{hyper}.pth')
-    acc = test()
-    print('Accuracy: {:.4f}'.format(acc))
+for epoch in range(1, 1001):
+    loss = train()
+    print('Epoch: {:03d}, Loss: {:.4f}'.format(epoch, loss))
+acc = test()
+print('Accuracy: {:.4f}'.format(acc))
