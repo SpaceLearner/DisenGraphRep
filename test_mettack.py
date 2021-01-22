@@ -23,9 +23,9 @@ parser.add_argument('--hidden', type=int, default=16,
                     help='Number of hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5,
                     help='Dropout rate (1 - keep probability).')
-parser.add_argument('--dataset', type=str, default='citeseer', choices=['cora', 'cora_ml', 'citeseer', 'polblogs', 'pubmed'], help='dataset')
-parser.add_argument('--ptb_rate', type=float, default=0.05,  help='pertubation rate')
-parser.add_argument('--model', type=str, default='Meta-Self',
+parser.add_argument('--dataset', type=str, default='cora', choices=['cora', 'cora_ml', 'citeseer', 'polblogs', 'pubmed'], help='dataset')
+parser.add_argument('--ptb_rate', type=float, default=0.1,  help='pertubation rate')
+parser.add_argument('--model', type=str, default='A-Meta-Self',
         choices=['Meta-Self', 'A-Meta-Self', 'Meta-Train', 'A-Meta-Train'], help='model variant')
 
 args = parser.parse_args()
@@ -49,8 +49,8 @@ adj, features, labels = preprocess(adj, features, labels, preprocess_adj=False)
 # Setup Surrogate Model
 # surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1, nhid=16,
         # dropout=0.5, with_relu=False, with_bias=True, weight_decay=5e-4, device=device)
-model = DGI(features.shape[1], 512, 'prelu')
-model.load_state_dict(torch.load("best_dgi.pkl"))
+model = DGI(features.shape[1], 512, 'prelu', True)
+# model.load_state_dict(torch.load("best_dgi.pkl"))
 surrogate = model.gcn
 surrogate = surrogate.to(device)
 surrogate.fit(features, adj, labels, idx_train)

@@ -2,30 +2,50 @@ import numpy as np
 import scipy.sparse as sp
 import torch
 import torch.nn as nn
+import random
 
 from models import DGI, LogReg
 from utils import process
+from deeprobust.graph.data import Dataset, PtbDataset
 
-dataset = 'cora'
+# seed = 123
+
+# random.seed(seed)
+# np.random.seed(seed)
+# torch.manual_seed(seed)
+# torch.cuda.manual_seed_all(seed)
+
+dataset = 'Cora'
 cuda = True
 # training params
 batch_size = 1
-nb_epochs = 10000
-patience = 20
+nb_epochs = 500
+patience = 50
 lr = 0.001
 l2_coef = 0.0
 drop_prob = 0.0
-hid_units = 256
+hid_units = 128
 sparse = True
-gamma = 0.000
+gamma = 0.0001
 nonlinearity = 'prelu' # special name to separate parameters
-
-adj, features, labels, idx_train, idx_val, idx_test = process.load_data(dataset)
+# 75.2616
+# adj, features, labels, idx_train, idx_val, idx_test = process.load_data(dataset)
+data = Dataset(root='/tmp/', name='Cora', setting='nettack')
+adj, features, labels = data.adj, data.features, data.labels
+idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
 features, _ = process.preprocess_features(features)
+
+# perturbed_data = PtbDataset(root='/tmp/', name='cora')
+# perturbed_adj = perturbed_data.adj
+
+# perturbed_adj = process.normalize_adj(perturbed_adj + sp.eye(perturbed_adj.shape[0]))
+
 
 nb_nodes = features.shape[0]
 ft_size = features.shape[1]
-nb_classes = labels.shape[1]
+# nb_classes = max(labels) + 1
+nb_classes = max(labels) + 1
+print(nb_nodes, nb_classes)
 
 adj = process.normalize_adj(adj + sp.eye(adj.shape[0]))
 
@@ -101,19 +121,40 @@ for epoch in range(nb_epochs):
 
     loss.backward()
     optimiser.step()
+    
+perturbed_data = PtbDataset(root='/tmp/', name='cora')
+perturbed_adj = perturbed_data.adj
+
+perturbed_adj = process.normalize_adj(perturbed_adj + sp.eye(perturbed_adj.shape[0]))
 
 print('Loading {}th epoch'.format(best_t))
 model.load_state_dict(torch.load('best_dgi.pkl'))
 
+print(sparse)
+if sparse:
+    sp_adj = process.sparse_mx_to_torch_sparse_tensor(perturbed_adj)
+else:
+    adj = (adj + sp.eye(perturbed_adj.shape[0])).todense()
+    
+if torch.cuda.is_available() and cuda:
+    if sparse:
+        sp_adj = sp_adj.cuda()
+    else:
+        adj = adj.cuda()
+        
 embeds, _ = model.embed(features, sp_adj if sparse else adj, sparse, None)
 print(embeds.shape)
 train_embs = embeds[idx_train]
 val_embs = embeds[idx_val]
 test_embs = embeds[idx_test]
 
-train_lbls = torch.argmax(labels[0, idx_train], dim=1)
-val_lbls = torch.argmax(labels[0, idx_val], dim=1)
-test_lbls = torch.argmax(labels[0, idx_test], dim=1)
+labels = labels.squeeze().long()
+# train_lbls = torch.argmax(labels[idx_train], dim=1)
+# val_lbls = torch.argmax(labels[idx_val], dim=1)
+# test_lbls = torch.argmax(labels[idx_test], dim=1)
+train_lbls = labels[idx_train]
+val_lbls = labels[idx_val]
+test_lbls = labels[idx_test]
 
 tot = torch.zeros(1)
 if torch.cuda.is_available() and cuda:
@@ -136,6 +177,7 @@ for _ in range(50):
         opt.zero_grad()
         # print(train_embs.shap)
         logits = log(train_embs)
+        
         loss = xent(logits, train_lbls)
         
         loss.backward()

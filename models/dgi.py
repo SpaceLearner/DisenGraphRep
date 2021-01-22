@@ -48,7 +48,8 @@ class DGI(nn.Module):
     def __init__(self, n_in, n_h, activation, cuda):
         super(DGI, self).__init__()
         # self.gcn = GCN(n_in, n_h, activation)
-        self.gcn = GCNt(n_in, 2 * n_h, 7, device=torch.device('cuda' if torch.cuda.is_available() and cuda else 'cpu'))
+        self.device = torch.device('cuda' if torch.cuda.is_available() and cuda else 'cpu')
+        self.gcn = GCNt(n_in, 2 * n_h, 7, device=self.device)
         self.decoder = GCN(n_h, n_in, act=F.relu)
         self.n_h = n_h
         self.n_in = n_in
@@ -61,7 +62,7 @@ class DGI(nn.Module):
         self.q_dist = dist.Normal()
         self.prior_dist = dist.Normal()
         
-        self.register_buffer('prior_params', torch.zeros(n_h, 2).cuda())
+        self.register_buffer('prior_params', torch.zeros(n_h, 2).to(self.device))
         
         self.beta = 1
         self.include_mutinfo = True

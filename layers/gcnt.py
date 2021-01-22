@@ -91,7 +91,7 @@ class GCNt(nn.Module):
 
     """
 
-    def __init__(self, nfeat, nhid, nclass, dropout=0.5, lr=0.01, weight_decay=5e-4, with_relu=True, with_bias=True, device=None):
+    def __init__(self, nfeat, nhid, nclass, dropout=0.5, lr=0.001, weight_decay=5e-4, with_relu=True, with_bias=True, device=None):
 
         super(GCNt, self).__init__()
 
@@ -130,7 +130,9 @@ class GCNt(nn.Module):
             x = F.prelu(self.gc1(x, adj, sparse), torch.tensor(0.25).to(self.device))
         else:
             x = self.gc1(x, adj, sparse)
-        x = F.dropout(x, self.dropout, training=self.training)[:, :x.size(1)//2]
+        x = x.view(-1, self.hidden_sizes[0] // 2, 2)
+        x = x[:, :, 0]
+        x = F.dropout(x, self.dropout, training=self.training)
         x = self.gc2(x, adj, sparse)
         
         return F.log_softmax(x.squeeze(), dim=1)
