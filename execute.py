@@ -30,7 +30,7 @@ gamma = 0.0001
 nonlinearity = 'prelu' # special name to separate parameters
 # 75.2616
 # adj, features, labels, idx_train, idx_val, idx_test = process.load_data(dataset)
-data = Dataset(root='/tmp/', name='Cora', setting='nettack')
+data = Dataset(root='/tmp/', name='Cora', setting='gcn')
 adj, features, labels = data.adj, data.features, data.labels
 idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
 features, _ = process.preprocess_features(features)
@@ -43,7 +43,6 @@ features, _ = process.preprocess_features(features)
 
 nb_nodes = features.shape[0]
 ft_size = features.shape[1]
-# nb_classes = max(labels) + 1
 nb_classes = max(labels) + 1
 print(nb_nodes, nb_classes)
 
@@ -102,8 +101,8 @@ for epoch in range(nb_epochs):
     logits = model(features, shuf_fts, sp_adj if sparse else adj, sparse, None, None, None) 
 
     loss = b_xent(logits, lbl) 
-    elbo = model.elbo2(features, sp_adj if sparse else adj, len(features))
-    loss -= gamma * elbo[0].mean()
+    # elbo = model.elbo2(features, sp_adj if sparse else adj, len(features))
+    # loss -= gamma * elbo[0].mean()
 
     print('Loss:', loss)
 
@@ -122,19 +121,19 @@ for epoch in range(nb_epochs):
     loss.backward()
     optimiser.step()
     
-perturbed_data = PtbDataset(root='/tmp/', name='cora')
-perturbed_adj = perturbed_data.adj
+# perturbed_data = PtbDataset(root='/tmp/', name='cora')
+# perturbed_adj = perturbed_data.adj
 
-perturbed_adj = process.normalize_adj(perturbed_adj + sp.eye(perturbed_adj.shape[0]))
+# perturbed_adj = process.normalize_adj(perturbed_adj + sp.eye(perturbed_adj.shape[0]))
 
 print('Loading {}th epoch'.format(best_t))
 model.load_state_dict(torch.load('best_dgi.pkl'))
 
 print(sparse)
 if sparse:
-    sp_adj = process.sparse_mx_to_torch_sparse_tensor(perturbed_adj)
+    sp_adj = process.sparse_mx_to_torch_sparse_tensor(adj)
 else:
-    adj = (adj + sp.eye(perturbed_adj.shape[0])).todense()
+    adj = (adj + sp.eye(adj.shape[0])).todense()
     
 if torch.cuda.is_available() and cuda:
     if sparse:

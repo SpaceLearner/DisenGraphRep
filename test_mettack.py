@@ -47,11 +47,10 @@ perturbations = int(args.ptb_rate * (adj.sum()//2))
 adj, features, labels = preprocess(adj, features, labels, preprocess_adj=False)
 
 # Setup Surrogate Model
-# surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1, nhid=16,
-        # dropout=0.5, with_relu=False, with_bias=True, weight_decay=5e-4, device=device)
-model = DGI(features.shape[1], 512, 'prelu', True)
+surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1, nhid=512, dropout=0.5, with_relu=False, with_bias=True, weight_decay=5e-4, device=device)
+# model = DGI(features.shape[1], 512, 'prelu', True)
 # model.load_state_dict(torch.load("best_dgi.pkl"))
-surrogate = model.gcn
+# surrogate = model.gcn
 surrogate = surrogate.to(device)
 surrogate.fit(features, adj, labels, idx_train)
 
@@ -75,12 +74,15 @@ def test(adj):
     ''' test on GCN '''
 
     # adj = normalize_adj_tensor(adj)
-    gcn = GCN(nfeat=features.shape[1],
-              nhid=args.hidden,
-              nclass=labels.max().item() + 1,
-              dropout=args.dropout, device=device)
+    model = DGI(features.shape[1], 512, 'prelu', True)
+    model.load_state_dict(torch.load("best_dgi.pkl"))
+    # gcn = GCN(nfeat=features.shape[1],
+    #           nhid=args.hidden,
+    #           nclass=labels.max().item() + 1,
+    #           dropout=args.dropout, device=device)
+    gcn = model.gcn
     gcn = gcn.to(device)
-    gcn.fit(features, adj, labels, idx_train) # train without model picking
+    # gcn.fit(features, adj, labels, idx_train) # train without model picking
     # gcn.fit(features, adj, labels, idx_train, idx_val) # train with validation model picking
     output = gcn.output.cpu()
     loss_test = F.nll_loss(output[idx_test], labels[idx_test])
@@ -97,7 +99,8 @@ def main():
     print('=== testing GCN on original(clean) graph ===')
     test(adj)
     modified_adj = model.modified_adj
-    # modified_features = model.modified_features
+    print('=== testing GCN on noisy(corrupted) graph ===')
+    modified_features = model.modified_features
     test(modified_adj)
 
     # # if you want to save the modified adj/features, uncomment the code below
