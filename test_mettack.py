@@ -5,7 +5,7 @@ import torch.optim as optim
 from deeprobust.graph.defense import GCN
 from deeprobust.graph.global_attack import MetaApprox, Metattack
 from deeprobust.graph.utils import *
-from deeprobust.graph.data import Dataset
+from deeprobust.graph.data import Dataset, PtbDataset
 from models import DGI
 import argparse
 
@@ -38,43 +38,11 @@ torch.manual_seed(args.seed)
 if device != 'cpu':
     torch.cuda.manual_seed(args.seed)
 
-data = Dataset(root='/tmp/', name=args.dataset, setting='nettack')
-adj, features, labels = data.adj, data.features, data.labels
-idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
-idx_unlabeled = np.union1d(idx_val, idx_test)
-
-perturbations = int(args.ptb_rate * (adj.sum()//2))
-adj, features, labels = preprocess(adj, features, labels, preprocess_adj=False)
-
-# Setup Surrogate Model
-surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1, nhid=512, dropout=0.5, with_relu=False, with_bias=True, weight_decay=5e-4, device=device)
-# model = DGI(features.shape[1], 512, 'prelu', True)
-# model.load_state_dict(torch.load("best_dgi.pkl"))
-# surrogate = model.gcn
-surrogate = surrogate.to(device)
-surrogate.fit(features, adj, labels, idx_train)
-
-# Setup Attack Model
-if 'Self' in args.model:
-    lambda_ = 0
-if 'Train' in args.model:
-    lambda_ = 1
-if 'Both' in args.model:
-    lambda_ = 0.5
-
-if 'A' in args.model:
-    model = MetaApprox(model=surrogate, nnodes=adj.shape[0], feature_shape=features.shape, attack_structure=True, attack_features=False, device=device, lambda_=lambda_)
-
-else:
-    model = Metattack(model=surrogate, nnodes=adj.shape[0], feature_shape=features.shape,  attack_structure=True, attack_features=False, device=device, lambda_=lambda_)
-
-model = model.to(device)
-
-def test(adj):
+def test(adj, features, labels, idx_train, idx_test):
     ''' test on GCN '''
 
     # adj = normalize_adj_tensor(adj)
-    model = DGI(features.shape[1], 512, 'prelu', True)
+    model = DGI(features.shape[1], 256, 'prelu', True)
     model.load_state_dict(torch.load("best_dgi.pkl"))
     # gcn = GCN(nfeat=features.shape[1],
     #           nhid=args.hidden,
@@ -82,9 +50,9 @@ def test(adj):
     #           dropout=args.dropout, device=device)
     gcn = model.gcn
     gcn = gcn.to(device)
-    # gcn.fit(features, adj, labels, idx_train) # train without model picking
+    gcn.fit(features, adj, labels, idx_train) # train without model picking
     # gcn.fit(features, adj, labels, idx_train, idx_val) # train with validation model picking
-    output = gcn.output.cpu()
+    output = gcn(features, adj)
     loss_test = F.nll_loss(output[idx_test], labels[idx_test])
     acc_test = accuracy(output[idx_test], labels[idx_test])
     print("Test set results:",
@@ -95,13 +63,23 @@ def test(adj):
 
 
 def main():
-    model.attack(features, adj, labels, idx_train, idx_unlabeled, perturbations, ll_constraint=False)
+    data = Dataset(root='/tmp/', name=args.dataset, setting='gcn')
+    adj, features, labels = data.adj, data.features, data.labels
+    idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    idx_unlabeled = np.union1d(idx_val, idx_test)
+    adj, features, labels = preprocess(adj, features, labels, preprocess_adj=True)
+    print(len(adj))
     print('=== testing GCN on original(clean) graph ===')
-    test(adj)
-    modified_adj = model.modified_adj
+    test(adj, features, labels, idx_train, idx_test)
+    
+    data = Dataset(root='/tmp/', name=args.dataset, setting='nettack')
+    adj, features, labels = data.adj, data.features, data.labels
+    idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    idx_unlabeled = np.union1d(idx_val, idx_test)
+    adj, features, labels = preprocess(adj, features, labels, preprocess_adj=True)
+    print(len(adj))
     print('=== testing GCN on noisy(corrupted) graph ===')
-    modified_features = model.modified_features
-    test(modified_adj)
+    test(adj, features, labels, idx_train, idx_test)
 
     # # if you want to save the modified adj/features, uncomment the code below
     # model.save_adj(root='./', name=f'mod_adj')

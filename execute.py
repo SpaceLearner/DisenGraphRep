@@ -20,13 +20,13 @@ cuda = True
 # training params
 batch_size = 1
 nb_epochs = 500
-patience = 50
+patience = 20
 lr = 0.001
 l2_coef = 0.0
 drop_prob = 0.0
-hid_units = 128
+hid_units = 256
 sparse = True
-gamma = 0.0001
+gamma = 0.001
 nonlinearity = 'prelu' # special name to separate parameters
 # 75.2616
 # adj, features, labels, idx_train, idx_val, idx_test = process.load_data(dataset)
