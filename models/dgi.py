@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from layers import GCN, AvgReadout, Discriminator, GCNt
 import models.dist as dist
+import math
 
 EPS = 1e-15
 
@@ -49,11 +50,12 @@ class DGI(nn.Module):
         super(DGI, self).__init__()
         # self.gcn = GCN(n_in, n_h, activation)
         self.device = torch.device('cuda' if torch.cuda.is_available() and cuda else 'cpu')
-        self.gcn = GCNt(n_in, 2 * n_h, 7, device=self.device)
+        self.gcn = GCNt(n_in, n_h, 3, device=self.device)
         self.decoder = GCN(n_h, n_in, act=F.relu)
         self.n_h = n_h
         self.n_in = n_in
         self.z_dim = self.n_h
+        self.proj = nn.Sequential(nn.Linear(2 * self.n_h, self.n_h), nn.BatchNorm1d(self.n_h), nn.ReLU(), nn.Linear(self.n_h, self.n_h))
         self.read = AvgReadout()
 
         self.sigm = nn.Sigmoid()
@@ -65,16 +67,21 @@ class DGI(nn.Module):
         self.register_buffer('prior_params', torch.zeros(n_h, 2).to(self.device))
         
         self.beta = 1
-        self.include_mutinfo = True
-        self.lamb = 0
-        self.mss = True
+        self.tcvae = True
+        self.include_mutinfo = False
+        self.lamb = 0.9
+        self.mss = False
 
         self.disc = Discriminator(n_h)
-
+    
+    def reset_parameters(self):
+        nn.init.xavier_uniform(self.proj.weight)
+        
     def forward(self, seq1, seq2, adj, sparse, msk, samp_bias1, samp_bias2):
         h_1 = self.gcn.forward1(seq1, adj, sparse).view(-1, self.n_h, self.q_dist.nparams)
+        print(self.q_dist.nparams)
         h_1 = h_1[:, :, 0]
-
+        
         c = self.read(h_1.unsqueeze(0), msk)
         c = self.sigm(c)
 
@@ -82,7 +89,7 @@ class DGI(nn.Module):
         h_2 = h_2[:, :, 0]
         # print(c.shape, h_1.shape, h_2.shape)
         ret = self.disc(c, h_1.unsqueeze(0), h_2.unsqueeze(0), samp_bias1, samp_bias2)
-
+        
         return ret
 
     # Detach the return variables
@@ -113,57 +120,13 @@ class DGI(nn.Module):
         prior_params = self._get_prior_params(batch_size)
         
         z_params = self.gcn.forward1(x, adj.unsqueeze(0))
-        
+        z_params = self.proj(z_params.squeeze())
         z_params = z_params.view(x.size(1), self.n_h, self.q_dist.nparams)
         zs = self.q_dist.sample(params=z_params)
 
-        x_params = self.decoder(zs.unsqueeze(0), adj.unsqueeze(0)).view(x.size(1), 1, -1)
-        xs = self.x_dist.sample(params=x_params)
-        # print(x.shape)
-        logpx = self.x_dist.log_density(x.squeeze().unsqueeze(1), params=x_params).view(batch_size, -1).sum(1)
         logpz = self.prior_dist.log_density(zs, params=prior_params).view(batch_size, -1).sum(1)
         logqz_condx = self.q_dist.log_density(zs, params=z_params).view(batch_size, -1).sum(1)
         
-        elbo2 = logpx + logpz - logqz_condx
-        
-        if self.beta == 1 and self.include_mutinfo and self.lamb == 0:
-            return elbo2, elbo2.detach()
+        elbo2 = logpz - logqz_condx
 
-        # compute log q(z) ~= log 1/(NM) sum_m=1^M q(z|x_m) = - log(MN) + logsumexp_m(q(z|x_m))
-        _logqz = self.q_dist.log_density(
-            zs.view(batch_size, 1, self.z_dim),
-            z_params.view(1, batch_size, self.z_dim, self.q_dist.nparams)
-        )
-
-        if not self.mss:
-            # minibatch weighted sampling
-            logqz_prodmarginals = (logsumexp(_logqz, dim=1, keepdim=False) - math.log(batch_size * n_nodes)).sum(1)
-            logqz = (logsumexp(_logqz.sum(2), dim=1, keepdim=False) - math.log(batch_size * n_nodes))
-        else:
-            # minibatch stratified sampling
-            logiw_matrix = Variable(self._log_importance_weight_matrix(batch_size, n_nodes).type_as(_logqz.data))
-            logqz = logsumexp(logiw_matrix + _logqz.sum(2), dim=1, keepdim=False)
-            logqz_prodmarginals = logsumexp(
-                logiw_matrix.view(batch_size, batch_size, 1) + _logqz, dim=1, keepdim=False).sum(1)
-
-        if not self.tcvae:
-            if self.include_mutinfo:
-                modified_elbo = logpx - self.beta * (
-                    (logqz_condx - logpz) -
-                    self.lamb * (logqz_prodmarginals - logpz)
-                )
-            else:
-                modified_elbo = logpx - self.beta * (
-                    (logqz - logqz_prodmarginals) +
-                    (1 - self.lamb) * (logqz_prodmarginals - logpz)
-                )
-        else:
-            if self.include_mutinfo:
-                modified_elbo =  logpx - (logqz_condx - logqz) - \
-                    self.beta * (logqz - logqz_prodmarginals) - \
-                    (1 - self.lamb) * (logqz_prodmarginals - logpz)
-            else:
-                modified_elbo = logpx - self.beta * (logqz - logqz_prodmarginals) - \
-                    (1 - self.lamb) * (logqz_prodmarginals - logpz)
-
-        return modified_elbo, elbo2.detach()
+        return elbo2, elbo2.detach()

@@ -101,6 +101,7 @@ class GCNt(nn.Module):
         self.hidden_sizes = [nhid]
         self.nclass = nclass
         self.gc1 = GCN(nfeat, nhid, act=lambda x: x, bias=with_bias)
+        self.gc11 = GCN(2 * nhid, nhid, act=lambda x: x, bias=with_bias)
         self.gc2 = GCN(nhid // 2, nclass, act=lambda x: x, bias=with_bias)
         self.dropout = dropout
         self.lr = lr
@@ -120,8 +121,10 @@ class GCNt(nn.Module):
         # print(x.shape, adj.shape)
         if self.with_relu:
             x = F.prelu(self.gc1(x, adj, sparse), torch.tensor(0.25).to(self.device))
+            # x = self.gc11(x, adj, sparse) 
         else:
             x = self.gc1(x, adj, sparse)
+            # x = self.gc11(x, adj, sparse)
         return x
 
     def forward(self, x, adj, sparse=False):

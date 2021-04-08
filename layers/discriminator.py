@@ -4,6 +4,8 @@ import torch.nn as nn
 class Discriminator(nn.Module):
     def __init__(self, n_h):
         super(Discriminator, self).__init__()
+        self.linear1 = nn.Linear(n_h, n_h, bias=False)
+        self.linear2 = nn.Linear(n_h, n_h, bias=False)
         self.f_k = nn.Bilinear(n_h, n_h, 1)
 
         for m in self.modules():
@@ -14,8 +16,15 @@ class Discriminator(nn.Module):
             torch.nn.init.xavier_uniform_(m.weight.data)
             if m.bias is not None:
                 m.bias.data.fill_(0.0)
+        # elif isinstance(m, nn.Linear):
+        #     torch.nn.init.xavier_uniform_(m.weight.data)
+        
 
     def forward(self, c, h_pl, h_mi, s_bias1=None, s_bias2=None):
+        
+        # h_pl = self.linear1(h_pl)
+        # h_mi = self.linear2(h_mi)
+        
         c_x = torch.unsqueeze(c, 1)
         c_x = c_x.expand_as(h_pl)
 
@@ -28,6 +37,6 @@ class Discriminator(nn.Module):
             sc_2 += s_bias2
 
         logits = torch.cat((sc_1, sc_2), 1)
-
+        
         return logits
 
