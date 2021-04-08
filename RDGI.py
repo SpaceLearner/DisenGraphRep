@@ -6,6 +6,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from sklearn.linear_model import LogisticRegression
 
+from torch_geometric.nn import GCNConv
+
 from deeprobust.graph import utils
 
 from copy import deepcopy
@@ -30,6 +32,20 @@ def reset(nn):
 
 EPS = 1e-15
 
+class Encoder(nn.Module):
+    def __init__(self, in_channels, hidden_channels):
+        super(Encoder, self).__init__()
+        self.conv = GCNConv(in_channels, hidden_channels, cached=True)
+        self.prelu = nn.PReLU(hidden_channels)
+
+    def forward(self, x, edge_index):
+        x = self.conv(x, edge_index)
+        x = self.prelu(x)
+        return x
+
+def corruption(x, edge_index):
+    return x[torch.randperm(x.size(0))], edge_index
+
 
 class DeepGraphInfomax(torch.nn.Module):
     r"""The Deep Graph Infomax model from the
@@ -44,11 +60,11 @@ class DeepGraphInfomax(torch.nn.Module):
         corruption (callable): The corruption function :math:`\mathcal{C}`.
     """
 
-    def __init__(self, hidden_channels, encoder, summary, corruption):
+    def __init__(self, in_channels, hidden_channels):
         super(DeepGraphInfomax, self).__init__()
         self.hidden_channels = hidden_channels
-        self.encoder = encoder
-        self.summary = summary
+        self.encoder = Encoder(in_channels, hidden_channels)
+        self.summary = lambda z, *args, **kwargs: torch.sigmoid(z.mean(dim=0)),
         self.corruption = corruption
 
         self.optimizer = optim.Adam(self.parameters(), weight_decay=5e-4)
